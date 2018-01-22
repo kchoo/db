@@ -1,2 +1,3 @@
 # db
-Wrapper around node-postgres ('pg' npm module)
+
+Wrapper around https://github.com/brianc/node-postgres ('pg' npm module)
