@@ -39,7 +39,7 @@ KchooDB.prototype.getPendingSources = function ({site}) {
 						SELECT id
 						FROM sources
 						WHERE site_id = (SELECT id FROM sites WHERE name = $2)
-							AND last last_processed_id IS NULL
+							AND state = (SELECT id from source_states WHERE name = 'pending')
 						ORDER BY id
 						LIMIT 1
 					)
