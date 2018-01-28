@@ -55,4 +55,47 @@ KchooDB.prototype.getPendingSources = function ({site}) {
 		});
 };
 
+// TODO: use proper binding syntax for updateLatest
+// i.e. find a way to make a no-op if latestID isn't set
+KchooDB.prototype.saveSource = function ({
+	id,
+	earliestID,
+	latestID = undefined
+}) {
+	let updateLatest = '';
+
+	if (latestID) {
+		updateLatest = `, latest_processed_id = ${latestID}`;
+	}
+
+	return this.client.
+		query({
+			text: `
+				UPDATE sources
+				SET
+					earliest_processed_id = $1
+					${updateLatest}
+				WHERE id = $2
+			`,
+			values: [earliestID, id]
+		});
+};
+
+// TODO: use proper binding syntax for sources string
+// i.e. figure out how node-postgres does arrays
+// and convert that for the IN clause
+KchooDB.prototype.finishPopulatingSources = function (sources) {
+	const sourceIDString = sources.join(',');
+
+	return this.client.
+		query({
+			text: `
+				UPDATE sources
+				SET status = (SELECT id FROM source_states WHERE name = 'standby')
+				WHERE id IN (${sourceIDString})
+			`,
+			values: []
+		});
+}
+
 module.exports = KchooDB;
