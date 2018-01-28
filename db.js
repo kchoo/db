@@ -28,7 +28,7 @@ KchooDB.prototype.addSource = function ({site, id}) {
 		});
 };
 
-KchooDB.prototype.getPendingSources = function ({site}) {
+KchooDB.prototype.getPendingSources = function ({site, count = 1}) {
 	return this.client.
 		query({
 			text: `
@@ -39,13 +39,25 @@ KchooDB.prototype.getPendingSources = function ({site}) {
 						SELECT id
 						FROM sources
 						WHERE site_id = (SELECT id FROM sites WHERE name = $2)
-							AND state = (SELECT id from source_states WHERE name = 'pending')
+						AND
+							(
+								-- sources we have never populated before
+								state = (SELECT id FROM source_states WHERE name = 'pending') OR
+								-- sources that we didn't finish populating
+								(
+									state = (SELECT id FROM source_states WHERE name = 'populating') AND
+									latest_processed_id IS NOT NULL
+								)
+							)
+						-- ordering by id should mean that sources which didn't finish
+						-- populating in one go will be processed first
+						-- (although it doesn't matter since it's all done in parallel)
 						ORDER BY id
-						LIMIT 1
+						LIMIT $2
 					)
 				RETURNING id, remote_identifier;
 			`,
-			values: [state, site, count]
+			values: [site, count]
 		}).
 		then(function ({rows}) {
 			return rows.
@@ -78,6 +90,20 @@ KchooDB.prototype.saveSource = function ({
 				WHERE id = $2
 			`,
 			values: [earliestID, id]
+		});
+};
+
+KchooDB.prototype.setErrors = function (ids) {
+	const sourceIDString = ids.join(',');
+
+	return this.client.
+		query({
+			text: `
+				UPDATE sources
+				SET status = (SELECT id FROM source_states WHERE name = 'error')
+				WHERE id IN (${sourceIDString})
+			`,
+			values: []
 		});
 };
 
