@@ -28,7 +28,7 @@ KchooDB.prototype.addSource = function ({site, id}) {
 		});
 };
 
-KchooDB.prototype.getPendingSources = function ({site, count = 1}) {
+KchooDB.prototype.getSourcesToPopulate = function ({site, count = 1}) {
 	return this.client.
 		query({
 			text: `
@@ -46,14 +46,47 @@ KchooDB.prototype.getPendingSources = function ({site, count = 1}) {
 						ORDER BY id
 						LIMIT $2::integer
 					)
-				RETURNING id, remote_identifier;
+				RETURNING id, remote_identifier, earliest_processed_id;
 			`,
 			values: [site, count]
 		}).
 		then(function ({rows}) {
 			return rows.
-				map(function ({id: dbID, remote_identifier: twitterID}) {
-					return {dbID, twitterID};
+				map(function ({
+					id: dbID,
+					remote_identifier: twitterID,
+					earliest_processed_id: earliest
+				}) {
+					return {dbID, twitterID, earliest};
+				});
+		});
+};
+
+KchooDB.prototype.getSourcesToRefresh = function () {
+	return this.client.
+		query({
+			text: `
+				UPDATE sources
+				SET state = 4
+				WHERE id IN
+					(
+						SELECT id
+						FROM sources
+						WHERE state = 3
+						ORDER BY last_refreshed NULLS FIRST
+					)
+				RETURNING id, remote_identifier, latest_processed_id;
+			`,
+			values: []
+		}).
+		then(function ({rows}) {
+			return rows.
+				map(function ({
+					id: dbID,
+					remote_identifier: twitterID,
+					latest_processed_id: latest
+				}) {
+					return {dbID, twitterID, latest};
 				});
 		});
 };
@@ -62,25 +95,28 @@ KchooDB.prototype.getPendingSources = function ({site, count = 1}) {
 // i.e. find a way to make a no-op if latestID isn't set
 KchooDB.prototype.saveSource = function ({
 	id,
-	earliestID,
+	earliestID = undefined,
 	latestID = undefined
 }) {
-	let updateLatest = '';
+	const updateSet = [];
 
 	if (latestID) {
-		updateLatest = `, latest_processed_id = ${latestID}`;
+		updateSet.push(`latest_processed_id = ${latestID}`);
 	}
+	if (earliestID) {
+		updateSet.push(`earliest_processed_id = ${earliestID}`);
+	}
+
+	const set = updateSet.join(',')
 
 	return this.client.
 		query({
 			text: `
 				UPDATE sources
-				SET
-					earliest_processed_id = $1
-					${updateLatest}
-				WHERE id = $2
+				SET ${updateSet}
+				WHERE id = $1
 			`,
-			values: [earliestID, id]
+			values: [id]
 		});
 };
 
@@ -108,9 +144,9 @@ KchooDB.prototype.setErrors = function (ids) {
 // TODO: use proper binding syntax for sources string
 // i.e. figure out how node-postgres does arrays
 // and convert that for the IN clause
-KchooDB.prototype.finishPopulatingSources = function (sources) {
+KchooDB.prototype.finishProcessingSources = function (sources, action) {
 	if (sources.length === 0) {
-		return Promise.resolve('No sources finished populating');
+		return Promise.resolve(`0 source(s) finished ${action}`);
 	}
 
 	const sourceIDString = sources.join(',');
@@ -125,7 +161,7 @@ KchooDB.prototype.finishPopulatingSources = function (sources) {
 			values: []
 		}).
 		then(function ({rowCount}) {
-			return `${rowCount} sources populated: ${sourceIDString}`;
+			return `${rowCount} source(s) finished ${action}: ${sourceIDString}`;
 		});
 };
 
