@@ -33,13 +33,14 @@ KchooDB.prototype.getSourcesToPopulate = function ({site, count = 1}) {
 		query({
 			text: `
 				UPDATE sources
-				SET state = 2
+				SET state = (SELECT id FROM source_states WHERE name = 'populating')
 				WHERE id IN
 					(
 						SELECT id
 						FROM sources
 						WHERE site_id = (SELECT id FROM sites WHERE name = $1::text)
-						AND state = 1 OR state = 2
+						AND state = (SELECT id FROM source_states WHERE name = 'pending')
+							OR state = (SELECT id FROM source_states WHERE name = 'populating')
 						-- ordering by id should mean that sources which didn't finish
 						-- populating in one go will be processed first
 						-- (although it doesn't matter since it's all done in parallel)
@@ -67,12 +68,12 @@ KchooDB.prototype.getSourcesToRefresh = function () {
 		query({
 			text: `
 				UPDATE sources
-				SET state = 4
+				SET state = (SELECT id FROM source_states WHERE name = 'refreshing')
 				WHERE id IN
 					(
 						SELECT id
 						FROM sources
-						WHERE state = 3
+						WHERE state = (SELECT id FROM source_states WHERE name = 'standby')
 						ORDER BY last_refreshed NULLS FIRST
 					)
 				RETURNING id, remote_identifier, latest_processed_id;
