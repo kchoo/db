@@ -108,13 +108,11 @@ KchooDB.prototype.saveSource = function ({
 		updateSet.push(`earliest_processed_id = ${earliestID}`);
 	}
 
-	const set = updateSet.join(',')
-
 	return this.client.
 		query({
 			text: `
 				UPDATE sources
-				SET ${updateSet}
+				SET ${updateSet.join(',')}
 				WHERE id = $1
 			`,
 			values: [id]
